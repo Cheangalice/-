@@ -1,0 +1,184 @@
+## vissem 面向視覺語義學習的图像理解与自然语言处理
+
+### *191250207 郑颖婷 自动化测试工具复现文档*
+
+
+
+### 1. 項目結構与模块
+
+Vissem的項目結構主要分为4個模塊：
+
+1. VOR.py （主程序运行）
+2. Train.py （训练模块）
+3. ImageExtract.py （将圖像分割成ROI）
+4. Classify.py （分类得到labels，即图像的描述）
+
+### 2. 主要功能和运行要求
+
+**主要功能**：vissem是经过训练后，可以辨别指定资料夹的图像里是否或有多少符合用户输入（图像描述）的图像。
+
+**要求**：只需運行程序 VOR.py（在 VOR 文件夾中），這個項目是在visual studio中創建的。建議使用visual studio運行項目。运行前提是			安裝了所有依賴項（例如opencv）並正確設置了路徑。
+
+**train()函數調用僅用於訓練一次，訓練完成後可以將函數調用 Train.classifier_train() 註釋掉。**
+
+**文件夾“data”包含訓練和測試數據。有兩個名為“data”的文件夾，“VOR”裡面的文件夾是實際使用的，而“VOR”文件夾外的“data”文件夾是備份。**
+
+###  3. 输入输出
+
+<img src="C:\Users\Alice Cheang\AppData\Roaming\Typora\typora-user-images\image-20211129011359724.png" alt="image-20211129011359724" style="zoom: 80%;" />
+
+- 输入：
+  用户查询的图形，例如( button, call, circle, triangle, checkbox)等“字符串”
+
+- 输出：
+  X(数量)
+  programs found that produces output as
+  (用户输入的图形)
+
+- 输出代表有X个资料夹中的的图像符合用户输入。
+
+### 4. VOR.py
+
+**4.1 程序开始于VOR.py，首先将database里的图像进行训练，得到训练数据。search_files可以更改。**
+
+ **\*\*\*训练后可以注释掉 Train.classifier_train()**
+
+```python
+if __name__ == '__main__':
+    #对database里的图形进行训练（训练后可以注释掉）
+    Train.classifier_train()
+
+    #要在search_files中搜索我的输入
+    search_files("C:/Users/Alice Cheang/Desktop/SoftwareTestingAndQuality/2021tool_implementation/vissem/data/test_images")
+```
+**4.2 输入你想要查询的图形**
+
+```python
+    search_query = input("Enter your query: ")
+```
+
+**然后程序需要将文件夹里的图像分类并得到他们的labels（语义描述），便要调用classify。**
+
+```python
+for file in files: #循环要搜索的文件夹
+	path = os.path.join(data_dir, file)
+	image = cv2.imread(path)
+	labels = classify.classifier_classify(image) #调用classify分类器来获得图像的labels
+	text1 = []
+	for label in labels:
+		text1.append("This program produces " + label)  #标签被装入固定模板来生成句子，即图像描述
+```
+
+### 5. ImageExtract.py
+
+**5.1 在调用classify前要进行预处理，即调用ImageExtract模块，把將圖像轉換為灰度、應用閾值、輪廓和邊界框，使用轮廓判别法get contours()，对于发现的每个轮廓，在图上画一个矩形围绕它，然后把矩形的数值计算出来。**
+
+```python
+def extract_elements(image):
+    gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
+    # 灰度grayscale
+    _, thresh = cv2.threshold(gray, 150, 255, cv2.THRESH_BINARY_INV)
+    # 閾值threshold
+    kernel = cv2.getStructuringElement(cv2.MORPH_CROSS, (3, 3))
+    dilated = cv2.dilate(thresh, kernel, iterations=13)
+    # 膨胀函数dilate
+    contours, hierarchy = cv2.findContours(dilated, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_NONE)
+    # 使用轮廓判别法get contours
+    # 对于发现的每个轮廓，在图上画一个矩形围绕它
+
+    bboxes = []
+    idx = 0
+
+    # 然后把矩形的数值计算出来，即得到他们的roi
+    for cnt in contours:
+        idx += 1
+        x, y, w, h = cv2.boundingRect(cnt)
+        bboxes.append([x, y, w, h])
+
+    # print(bboxes)类似：[[43, 195, 116, 38], [44, 80, 108, 109], [102, 67, 58, 58], [25, 27, 144, 57]]
+    return bboxes
+```
+
+### 6. Classify.py
+
+**6.1 在classifier经过计算得到roi区域，对roi进行预处理,得到预测结果数组，数组的位置代表对应的图形（{0: 'barchart', 1: 'button', 2: 'call', 3: 'circle', 4: 'triangle'}），我们取预测结果数组中最大的那一项对应的图形为结果的label。**
+
+```python
+def classifier_classify(image):
+    model_path = os.path.join("data/model/", "classifier.model")
+    # 设置模型
+    model = Train.ElementClassifier(model_path=model_path, load=True)
+    labels = []
+    # 调用imageExtract將輸入圖像分割為 ROI感兴趣区域
+    # 在图像处理领域，感兴趣区域(ROI) 是从图像中选择的一个图像区域
+    bboxes = ImageExtract.extract_elements(image)
+    for bbox in bboxes:
+        x, y, w, h = bbox
+        roi = image[y - 20:y + h + 20, x - 20:x + w + 20]
+
+        if np.size(roi) == 0:
+            continue
+
+        # 对roi进行预处理,得到预测结果数组
+        pred = model.predict(roi, preprocess=True)
+        indx = np.argmax(pred, axis=1)[0]
+
+        # score取预测结果的数组里最大的那一个
+        score = pred[0][indx]
+        cv2.rectangle(image, (x-20, y-20), (x + w+20, y + h+20), (0, 191, 255), thickness=2)
+        # label为预测结果集里score最高的那一项，即#{0: 'barchart', 1: 'button', 2: 'call', 3: 'circle', 4: 'triangle'}其中一个
+        text = str(indx) + ":" + model.id2label[indx] + ":" + str(score)
+        #cv2.putText(image, text, (x, y), cv2.FONT_HERSHEY_SIMPLEX, 0.8, (255, 0, 0))
+        #cv2.imshow("Input", image)
+        #print(indx, model.id2label[indx], score)
+        labels.append(model.id2label[indx])
+
+
+    return labels
+```
+
+### 7. VOR.py
+
+**7.1 回到VOR.py，classify所得出的labels标签被装入固定模板来生成句子，即图像描述。然后调用cosine_nlm的text_to_vector()来获得两组标签的数量：{'This': 1, 'program': 1, 'produces': 1, call: 1} ，{'call': 1}**
+
+***cosine_nlm.py 用於根據余弦相似度匹配用戶查詢和程序描述***
+
+**7.2 再调用cosine_nlm的get_consine(),即当cosine >= 0.5时代表vector1和vectors有相同的图形表示。得到结果。**
+
+```python
+cosines = []
+      for text in text1:
+        vector1 = cosine_nlm.text_to_vector(text)           #第一个向量为要搜索的文件夹里的labels的图像描述的集合
+        vector2 = cosine_nlm.text_to_vector(search_query)   #第二个向量为用户输入的图形
+        # {'This': 1, 'program': 1, 'produces': 1, 'triangle': 1}
+        # {'call': 1}
+
+        cosines.append(cosine_nlm.get_cosine(vector1, vector2))  #把两个向量作为cosines的参数
+      
+      # cosine >= 0.5时代表vector1和vectors有相同的图形表示
+      for cosine in cosines:
+         if cosine>=0.5 :       #当cosine >= 0.5 时，证明要搜索的文件夹里的label符合用户输入的图形
+           count += 1
+           print(count)
+           print("programs found that produces output as" )
+           print(search_query)
+           #Also display path here
+           break
+                     
+    if count == 0:
+      print("No program found that matches your query!")
+```
+
+### 8. 结果分析
+
+**8.1 cosine >= 0.5时代表两个向量之间的有一样的字符，所以有8个集合与用户输入一致。**
+
+```
+8
+programs found that produces output as
+button
+```
+
+**即代表有8个资料夹中的的图像符合button。**
+
+![image-20211129011541306](C:\Users\Alice Cheang\AppData\Roaming\Typora\typora-user-images\image-20211129011541306.png)
